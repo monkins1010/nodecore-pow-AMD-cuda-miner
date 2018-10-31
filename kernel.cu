@@ -64,11 +64,11 @@ uint64_t SWAPDWORDS(uint64_t value)
 	v[a] += (m[idx1] ^ u512[idx2]) + v[b]; \
 	v[d] = SWAPDWORDS(v[d] ^ v[a]); \
 	v[c] += v[d]; \
-	v[b] = ROTR( v[b] ^ v[c], 25); \
+	v[b] = ROTR( v[b] ^ v[c], 43); \
 	v[a] += (m[idx2] ^ u512[idx1]) + v[b]; \
-	v[d] = ROTR( v[d] ^ v[a], 16); \
+	v[d] = ROTR( v[d] ^ v[a], 5); \
 	v[c] += v[d]; \
-	v[b] = ROTR( v[b] ^ v[c], 11); \
+	v[b] = ROTR( v[b] ^ v[c], 18); \
 }
 cudaStream_t cudastream;
 
@@ -133,10 +133,10 @@ void vblake512_compress(uint64_t *h, const uint64_t *block, const uint8_t((*sigm
 	v[11] = u512[3];
 	v[12] = u512[4] ^ 64;
 	v[13] = u512[5] ^ 0;
-	v[14] = u512[6] ^ (long)(-1);
+	v[14] = u512[6] ^ 0xffffffffffffffffull;// (long)(-1);
 	v[15] = u512[7] ^ 0;
 
-	//#pragma unroll 16
+	#pragma unroll 16
 	for (int i = 0; i < 16; i++)
 	{
 		/* column step */
@@ -203,7 +203,7 @@ uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const 
 
 #if HIGH_RESOURCE
 #define DEFAULT_BLOCKSIZE 512
-#define DEFAULT_THREADS_PER_BLOCK 0x80000
+#define DEFAULT_THREADS_PER_BLOCK 1024
 #else
 #define DEFAULT_BLOCKSIZE 512
 #define DEFAULT_THREADS_PER_BLOCK 512
