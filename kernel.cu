@@ -58,17 +58,18 @@ uint64_t SWAPDWORDS(uint64_t value)
 #endif
 }
 
-#define G(a,b,c,d,x) { \
-	uint32_t idx1 = sigma[i][x]; \
-	uint32_t idx2 = sigma[i][x+1]; \
-	v[a] += (m[idx1] ^ u512[idx2]) + v[b]; \
-	v[d] = SWAPDWORDS(v[d] ^ v[a]); \
-	v[c] += v[d]; \
-	v[b] = ROTR( v[b] ^ v[c], 43); \
-	v[a] += (m[idx2] ^ u512[idx1]) + v[b]; \
-	v[d] = ROTR( v[d] ^ v[a], 5); \
-	v[c] += v[d]; \
-	v[b] = ROTR( v[b] ^ v[c], 18); \
+#define B2B_G(v,a,b,c,d,x,y,c1,c2) { \
+	v[a] = v[a] + v[b] + (x ^ c1); \
+	v[d] ^= v[a]; \
+	v[d] = ROTR64(v[d], 60); \
+	v[c] = v[c] + v[d]; \
+	v[b] = ROTR64(v[b] ^ v[c], 43); \
+	v[a] = v[a] + v[b] + (y ^ c2); \
+	v[d] = ROTR64(v[d] ^ v[a], 5); \
+	v[c] = v[c] + v[d]; \
+	v[b] = ROTR64(v[b] ^ v[c], 18); \
+	v[d] ^= (~v[a] & ~v[b] & ~v[c]) | (~v[a] & v[b] & v[c]) | (v[a] & ~v[b] & v[c])   | (v[a] & v[b] & ~v[c]); \
+    v[d] ^= (~v[a] & ~v[b] & v[c]) | (~v[a] & v[b] & ~v[c]) | (v[a] & ~v[b] & ~v[c]) | (v[a] & v[b] & v[c]); \
 }
 cudaStream_t cudastream;
 
@@ -112,43 +113,62 @@ static const uint64_t c_u512[16] =
 	0xD859E6F081AAE000ULL, 0x63D980597B560E6BULL
 };
 
+__device__ __constant__
+static const uint64_t vBlake_iv[8] = {
+	0x4BBF42C1F006AD9Dull, 0x5D11A8C3B5AEB12Eull,
+	0xA64AB78DC2774652ull, 0xC67595724658F253ull,
+	0xB8864E79CB891E56ull, 0x12ED593E29FB41A1ull,
+	0xB1DA3AB63C60BAA8ull, 0x6D20E50C1F954DEDull
+};
+
 __device__ __forceinline__
 void vblake512_compress(uint64_t *h, const uint64_t *block, const uint8_t((*sigma)[16]), const uint64_t *u512)
 {
 	uint64_t v[16];
 	uint64_t m[16];
 
-#pragma unroll
-	for (int i = 0; i < 16; i++) {
+	#pragma unroll 8
+	for (int i = 0; i < 8; i++) {
+		v[i] = h[i];
+		v[i + 8] = vBlake_iv[i];
+	}
+	
+	v[12] ^= 64;
+	v[13] ^= 0;
+	v[14] ^= (uint64_t)(0xffffffffffffffffull);// (long)(-1);
+	v[15] ^= 0;
+
+#pragma unroll 8
+	for (int i = 0; i < 8; i++) {
 		m[i] = cuda_swab64(block[i]);
 	}
 
-	//#pragma unroll 8
-	for (int i = 0; i < 8; i++)
-		v[i] = h[i];
 
-	v[8] = u512[0];
-	v[9] = u512[1];
-	v[10] = u512[2];
-	v[11] = u512[3];
-	v[12] = u512[4] ^ 64;
-	v[13] = u512[5] ^ 0;
-	v[14] = u512[6] ^ 0xffffffffffffffffull;// (long)(-1);
-	v[15] = u512[7] ^ 0;
+	//#pragma unroll 16
+	for (int i = 0; i < 16; i++) {
+		B2B_G(v, 0, 4, 8, 12, m[sigma[i][1]], m[sigma[i][0]],
+			u512[sigma[i][1]], u512[sigma[i][0]]);
 
-	#pragma unroll 16
-	for (int i = 0; i < 16; i++)
-	{
-		/* column step */
-		G(0, 4, 8, 12, 0);
-		G(1, 5, 9, 13, 2);
-		G(2, 6, 10, 14, 4);
-		G(3, 7, 11, 15, 6);
-		/* diagonal step */
-		G(0, 5, 10, 15, 8);
-		G(1, 6, 11, 12, 10);
-		G(2, 7, 8, 13, 12);
-		G(3, 4, 9, 14, 14);
+		B2B_G(v, 1, 5, 9, 13, m[sigma[i][3]], m[sigma[i][2]],
+			u512[sigma[i][3]], u512[sigma[i][2]]);
+
+		B2B_G(v, 2, 6, 10, 14, m[sigma[i][5]], m[sigma[i][4]],
+			u512[sigma[i][5]], u512[sigma[i][4]]);
+
+		B2B_G(v, 3, 7, 11, 15, m[sigma[i][7]], m[sigma[i][6]],
+			u512[sigma[i][7]], u512[sigma[i][6]]);
+
+		B2B_G(v, 0, 5, 10, 15, m[sigma[i][9]], m[sigma[i][8]],
+			u512[sigma[i][9]], u512[sigma[i][8]]);
+
+		B2B_G(v, 1, 6, 11, 12, m[sigma[i][11]], m[sigma[i][10]],
+			u512[sigma[i][11]], u512[sigma[i][10]]);
+
+		B2B_G(v, 2, 7, 8, 13, m[sigma[i][13]], m[sigma[i][12]],
+			u512[sigma[i][13]], u512[sigma[i][12]]);
+
+		B2B_G(v, 3, 4, 9, 14, m[sigma[i][15]], m[sigma[i][14]],
+			u512[sigma[i][15]], u512[sigma[i][14]]);
 	}
 
 	h[0] ^= v[0] ^ v[8];
@@ -167,31 +187,29 @@ void vblake512_compress(uint64_t *h, const uint64_t *block, const uint8_t((*sigm
 __device__ __forceinline__
 uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const uint64_t h3, const uint64_t h4, const uint64_t h5, const uint64_t h6, const uint64_t h7)
 {
-	uint64_t buf[8];
-	uint64_t h[8] = {
-	0x4BBF42C1F006AD9Dull, 0x5D11A8C3B5AEB12Eull,
-	0xA64AB78DC2774652ull, 0xC67595724658F253ull,
-	0xB8864E79CB891E56ull, 0x12ED593E29FB41A1ull,
-	0xB1DA3AB63C60BAA8ull, 0x6D20E50C1F954DEDull
-	};
+	uint64_t b[8];
+	uint64_t h[8];
 
-	h[0] ^= (long)(0x01010000 ^ 0x18);
-
-	buf[0] = h0;
-	buf[1] = h1;
-	buf[2] = h2;
-	buf[3] = h3;
-	buf[4] = h4;
-	buf[5] = h5;
-	buf[6] = h6;
-	buf[7] = h7;
-
-	vblake512_compress(h, buf, c_sigma_big, c_u512);
-	
 	for (int i = 0; i < 8; i++) {
-		buf[i] = cuda_swab64(h[i]);
+		h[i] = vBlake_iv[i];
 	}
-	return buf[7];
+	h[0] ^= (uint64_t)(0x01010000ull ^ 0x18ull);
+
+	b[0] = h0;
+	b[1] = h1;
+	b[2] = h2;
+	b[3] = h3;
+	b[4] = h4;
+	b[5] = h5;
+	b[6] = h6;
+	b[7] = h7;
+		
+	vblake512_compress(h, b, c_sigma_big, c_u512);
+	
+	//for (int i = 0; i < 8; i++) {
+		b[7] = cuda_swab64(h[7]);
+	//}
+	return h[7];
 }
 
 
