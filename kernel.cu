@@ -172,17 +172,17 @@ void vblake512_compress(uint64_t *h, const uint64_t *block, const uint8_t((*sigm
 	}
 
 	h[0] ^= v[0] ^ v[8];
-	h[1] ^= v[1] ^ v[9];
-	h[2] ^= v[2] ^ v[10];
+//	h[1] ^= v[1] ^ v[9];
+//	h[2] ^= v[2] ^ v[10];
 	h[3] ^= v[3] ^ v[11];
-	h[4] ^= v[4] ^ v[12];
-	h[5] ^= v[5] ^ v[13];
+//	h[4] ^= v[4] ^ v[12];
+//	h[5] ^= v[5] ^ v[13];
 	h[6] ^= v[6] ^ v[14];
-	h[7] ^= v[7] ^ v[15];
+//	h[7] ^= v[7] ^ v[15];
 
 	h[0] ^= h[3] ^ h[6];  //copied from  the java
-	h[1] ^= h[4] ^ h[7];
-	h[2] ^= h[5];
+	//h[1] ^= h[4] ^ h[7];
+	//h[2] ^= h[5];
 }
 __device__ __forceinline__
 uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const uint64_t h3, const uint64_t h4, const uint64_t h5, const uint64_t h6, const uint64_t h7)
@@ -235,6 +235,7 @@ bool verboseOutput = false;
 /*
 * Kernel function to search a range of nonces for a solution falling under the macro-configured difficulty (CPU=2^24, GPU=2^32).
 */
+__launch_bounds__(256, 2)
 __global__ void vblakeHasher(uint32_t *nonceStart, uint32_t *nonceOut, uint64_t *hashStartOut, uint64_t const *headerIn)
 {
 	// Generate a unique starting nonce for each thread that doesn't overlap with the work of any other thread
