@@ -134,13 +134,13 @@ void vblake512_compress(uint64_t *h, const uint64_t *block, const uint8_t((*sigm
 	}
 	
 	v[12] ^= 64;
-	v[13] ^= 0;
+	//v[13] ^= 0;
 	v[14] ^= (uint64_t)(0xffffffffffffffffull);// (long)(-1);
-	v[15] ^= 0;
+	//v[15] ^= 0;
 
 #pragma unroll 8
 	for (int i = 0; i < 8; i++) {
-		m[i] = cuda_swab64(block[i]);
+		m[i] = block[i]; // cuda_swab64(block[i]); orORINGNAL BLAKE
 	}
 
 
@@ -189,11 +189,11 @@ uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const 
 {
 	uint64_t b[8];
 	uint64_t h[8];
-
+#pragma unroll 8
 	for (int i = 0; i < 8; i++) {
 		h[i] = vBlake_iv[i];
 	}
-	h[0] ^= (uint64_t)(0x01010000ull ^ 0x18ull);
+	h[0] ^= (uint64_t)(0x01010000 ^ 0x18);
 
 	b[0] = h0;
 	b[1] = h1;
@@ -207,9 +207,9 @@ uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const 
 	vblake512_compress(h, b, c_sigma_big, c_u512);
 	
 	//for (int i = 0; i < 8; i++) {
-		b[7] = cuda_swab64(h[7]);
+	//	b[0] = cuda_swab64(h[0]);
 	//}
-	return h[7];
+	return h[0];
 }
 
 
