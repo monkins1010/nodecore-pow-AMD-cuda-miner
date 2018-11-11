@@ -84,43 +84,21 @@ void vblake512_compress(unsigned long *h, const unsigned long *block)
 		v[i] = h[i];
 		v[i + 8] = vBlake_iv[i];
 	}
-
 	v[12] ^= 64;
-	//v[13] ^= 0;
 	v[14] ^= (ulong)(0xfffffffffffffffful);// (long)(-1);
-											   //v[15] ^= 0;
 
-											   //#pragma unroll 8
 	for (int i = 0; i < 8; i++) {
-		m[i] = block[i]; // cuda_swab64(block[i]); orORINGNAL BLAKE
+		m[i] = block[i]; 
 	}
-
-
+	const uchar b[8] = { 4,5,6,7,5,6,7,4 };
+	const uchar c[8] = { 8,9,10,11,10,11,8,9 };
+	const uchar d[8] = { 12,13,14,15,15,12,13,14 };
+	const uchar e[8] = { 0,2,4,6,8,10,12,14 };
 	//#pragma unroll 16
-	for (int i = 0; i < 16; i++) {
-		B2B_G(v, 0, 4, 8, 12, m[sigma[i][1]], m[sigma[i][0]],
-			u512[sigma[i][1]], u512[sigma[i][0]]);
+	for (int i = 0; i < 128; i++) {
+		B2B_G(v, i&3, b[i&7], c[i&7], d[i&7], m[sigma[i>>3][e[i&7]+1]], m[sigma[i>>3][e[i&7]]],
+			u512[sigma[i>>3][e[i&7]+1]], u512[sigma[i>>3][e[i&7]]]);
 
-		B2B_G(v, 1, 5, 9, 13, m[sigma[i][3]], m[sigma[i][2]],
-			u512[sigma[i][3]], u512[sigma[i][2]]);
-
-		B2B_G(v, 2, 6, 10, 14, m[sigma[i][5]], m[sigma[i][4]],
-			u512[sigma[i][5]], u512[sigma[i][4]]);
-
-		B2B_G(v, 3, 7, 11, 15, m[sigma[i][7]], m[sigma[i][6]],
-			u512[sigma[i][7]], u512[sigma[i][6]]);
-
-		B2B_G(v, 0, 5, 10, 15, m[sigma[i][9]], m[sigma[i][8]],
-			u512[sigma[i][9]], u512[sigma[i][8]]);
-
-		B2B_G(v, 1, 6, 11, 12, m[sigma[i][11]], m[sigma[i][10]],
-			u512[sigma[i][11]], u512[sigma[i][10]]);
-
-		B2B_G(v, 2, 7, 8, 13, m[sigma[i][13]], m[sigma[i][12]],
-			u512[sigma[i][13]], u512[sigma[i][12]]);
-
-		B2B_G(v, 3, 4, 9, 14, m[sigma[i][15]], m[sigma[i][14]],
-			u512[sigma[i][15]], u512[sigma[i][14]]);
 	}
 
 	h[0] ^= v[0] ^ v[8];
