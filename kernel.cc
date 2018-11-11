@@ -31,7 +31,7 @@
 #endif
 
 
-#define DEFAULT_BLOCKSIZE 0x1000
+#define DEFAULT_BLOCKSIZE 0x2000
 #define DEFAULT_THREADS_PER_BLOCK 128
 
 
@@ -875,22 +875,24 @@ int main(int argc, char *argv[])
 		clEnqueueWriteBuffer(queue, pheaderin_d, CL_TRUE, 0, sizeof(uint64_t) * 8, pheaderin, 0, NULL, NULL);
 
 
-		uint32_t nonceStart = (uint64_t)lastNonceStart + (blocksize * 256 * threadsPerBlock);
+		uint32_t nonceStart = (uint64_t)lastNonceStart + (blocksize * 128 * threadsPerBlock);
 		lastNonceStart = nonceStart;
 		pnoncestart[0] = nonceStart;
+
 		clEnqueueWriteBuffer(queue, pnoncestart_d, CL_TRUE, 0, sizeof(uint32_t) * 1, pnoncestart, 0, NULL, NULL);
+		clEnqueueWriteBuffer(queue, phashstartout_d, CL_TRUE, 0, sizeof(uint64_t) * 1, phashstartout, 0, NULL, NULL);
 
 		check_clSetKernelArg(k_vblake, 0, &pnoncestart_d);
 		check_clSetKernelArg(k_vblake, 1, &pnonceout_d);
 		check_clSetKernelArg(k_vblake, 2, &phashstartout_d);
 		check_clSetKernelArg(k_vblake, 3, &pheaderin_d);
 
-		global_ws = (unsigned int)(blocksize * threadsPerBlock*256);
+		global_ws = (unsigned int)(blocksize * threadsPerBlock*128);
 
 		//start Opencl kernel
 		check_clEnqueueNDRangeKernel(queue, k_vblake, 1, NULL,
 			&global_ws, &local_work_size, 0, NULL, NULL);
-		//clFinish(queue);
+		clFinish(queue);
 
 		check_clEnqueueReadBuffer(queue, pnonceout_d,
 			CL_TRUE,	// cl_bool	blocking_read
@@ -902,7 +904,7 @@ int main(int argc, char *argv[])
 			NULL);	// cl_event	*event
 
 		check_clEnqueueReadBuffer(queue, phashstartout_d,
-			CL_FALSE,	// cl_bool	blocking_read
+			CL_TRUE,	// cl_bool	blocking_read
 			0,		// size_t	offset
 			sizeof(uint64_t) * 1,	// size_t	size
 			phashstartout,	// void		*ptr
@@ -917,7 +919,7 @@ int main(int argc, char *argv[])
 		hashStart[0] = phashstartout[0];
 
 		unsigned long long totalTime = std::time(0) - startTime;
-		hashes += (threadsPerBlock * blocksize * 256);
+		hashes += (threadsPerBlock * blocksize * 128);
 
 		double hashSpeed = (double)hashes;
 		hashSpeed /= (totalTime * 1024 * 1024);
@@ -961,7 +963,7 @@ int main(int argc, char *argv[])
 #if CPU_SHARES 
 			sprintf(line, "\t Share Found @ 2^24! {%#018llx} [nonce: %#08lx]", hashFlipped, nonce);
 #else
-			sprintf(line, "\t Share Found @ 2^32! {%#018llx} [nonce: %#08lx]", hashFlipped, nonce);
+			sprintf(line, "\t Share Found @ 2^32! {%#08lx} [nonce: %#08lx]", hashFlipped, nonce);
 #endif
 
 			cout << line << endl;
