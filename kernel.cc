@@ -48,6 +48,7 @@ char *binary = NULL;
 size_t binary_len;
 uint32_t lastNonceStart = 0;
 char outputBuffer[100 *1024];
+string selectedDeviceName;
 /*
 * Kernel function to search a range of nonces for a solution falling under the macro-configured difficulty (CPU=2^24, GPU=2^32).
 */
@@ -329,6 +330,7 @@ void print_device_info(unsigned i, cl_device_id d)
 		promptExit(-1);
 		//fatal("malloc: %s\n", strerror(errno));
 	}
+	selectedDeviceName = name;
 	sprintf(outputBuffer, "  ID %d: %s", i, name);
 	cout << outputBuffer << endl;
 	Log::info(outputBuffer);
@@ -818,7 +820,7 @@ int main(int argc, char *argv[])
 	/////////////////////////////////
 
 
-	string selectedDeviceName;
+	
 	// Print out information about all available CUDA devices on system
 
 
