@@ -5,20 +5,29 @@
 #include <CL/cl.h>
 #include <chrono>
 #include <ctime>
-#include <stdio.h>
-
+//#include <fcntl.h>
+//#include <unistd.h>
+//#include <getopt.h>
+//#include <errno.h>
+//#include <time.h>
+//#include <stdio.h>
+//#include <unistd.h>
 #include <stdlib.h>
 #include "UCPClient.h"
 #include <fcntl.h>
+//#include <stddef.h>
 
 #ifdef _WIN32
 #include <Windows.h>
 #include <VersionHelpers.h>
 #include <io.h>
 #include <BaseTsd.h>
-#elif __linux__
+#endif
+
+#ifdef __linux__
 #include <sys/socket.h> 
 #include <netdb.h>
+#include "_kernel.h"
 #endif
 
 #include <ctime>
@@ -31,8 +40,8 @@
 #endif
 
 
-#define DEFAULT_BLOCKSIZE 256
-#define DEFAULT_THREADS_PER_BLOCK 512
+#define DEFAULT_BLOCKSIZE 0x1000
+#define DEFAULT_THREADS_PER_BLOCK 128
 
 
 int blocksize = DEFAULT_BLOCKSIZE;
@@ -40,7 +49,7 @@ int threadsPerBlock = DEFAULT_THREADS_PER_BLOCK;
 
 bool verboseOutput = false;
 int amd_flag = 0;
-typedef SSIZE_T ssize_t;
+//typedef SSIZE_T ssize_t;
 #define open _open
 const char *source = NULL;
 size_t source_len;
@@ -235,7 +244,7 @@ cl_mem check_clCreateBuffer(cl_context ctx, cl_mem_flags flags, size_t size,
 	//fatal("clCreateBuffer (%d)\n", status);
 	return ret;
 }
-
+#ifdef _WIN32
 void dump(const char *fname, void *data, size_t len)
 {
 	int			fd;
@@ -274,7 +283,7 @@ void dump(const char *fname, void *data, size_t len)
 	}
 
 }
-
+#endif
 void get_program_bins(cl_program program)
 {
 	cl_int		status;
@@ -291,9 +300,9 @@ void get_program_bins(cl_program program)
 		sizeof(p),	// size_t param_value_size
 		&p,		// void *param_value
 		&ret);	// size_t *param_value_size_ret
-
+#ifdef _WIN32
 	dump("dump.co", p, sizes);
-
+#endif
 }
 void print_platform_info(cl_platform_id plat)
 {
@@ -520,6 +529,9 @@ void scan_platforms(cl_platform_id *plat_id, cl_device_id *dev_id)
 	amd_flag = is_platform_amd(*plat_id);
 	free(platforms);
 }
+
+#ifdef _WIN32
+
 void load_file(const char *fname, char **dat, size_t *dat_len, int ignore_error)
 {
 	struct stat	st;
@@ -571,7 +583,7 @@ void load_file(const char *fname, char **dat, size_t *dat_len, int ignore_error)
 	}
 	(*dat)[*dat_len] = 0;
 }
-
+#endif
 int main(int argc, char *argv[])
 {
 	// Check for help argument (only -h)
@@ -875,17 +887,18 @@ int main(int argc, char *argv[])
 		clEnqueueWriteBuffer(queue, pheaderin_d, CL_TRUE, 0, sizeof(uint64_t) * 8, pheaderin, 0, NULL, NULL);
 
 
-		uint32_t nonceStart = (uint64_t)lastNonceStart + (blocksize * threadsPerBlock * 256);
+		uint32_t nonceStart = (uint64_t)lastNonceStart + (blocksize * threadsPerBlock * 128);
 		lastNonceStart = nonceStart;
 		pnoncestart[0] = nonceStart;
 		clEnqueueWriteBuffer(queue, pnoncestart_d, CL_TRUE, 0, sizeof(uint32_t) * 1, pnoncestart, 0, NULL, NULL);
+	    clEnqueueWriteBuffer(queue, phashstartout_d, CL_TRUE, 0, sizeof(uint64_t) * 1, phashstartout, 0, NULL, NULL);
 
 		check_clSetKernelArg(k_vblake, 0, &pnoncestart_d);
 		check_clSetKernelArg(k_vblake, 1, &pnonceout_d);
 		check_clSetKernelArg(k_vblake, 2, &phashstartout_d);
 		check_clSetKernelArg(k_vblake, 3, &pheaderin_d);
 
-		global_ws = (unsigned int)(blocksize * threadsPerBlock);
+		global_ws = (unsigned int)(blocksize * threadsPerBlock * 128);
 
 		//start Opencl kernel
 		check_clEnqueueNDRangeKernel(queue, k_vblake, 1, NULL,
@@ -917,7 +930,7 @@ int main(int argc, char *argv[])
 		hashStart[0] = phashstartout[0];
 
 		unsigned long long totalTime = std::time(0) - startTime;
-		hashes += (threadsPerBlock * blocksize * 256);
+		hashes += (threadsPerBlock * blocksize * 128);
 
 		double hashSpeed = (double)hashes;
 		hashSpeed /= (totalTime * 1024 * 1024);

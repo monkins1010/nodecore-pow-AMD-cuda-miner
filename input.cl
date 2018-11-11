@@ -1,32 +1,16 @@
 
-#define DEFAULT_BLOCKSIZE 512
-#define DEFAULT_THREADS_PER_BLOCK 256
-#define WORK_PER_THREAD 1024
-
 #define ROTR64(x, n)  (((x) >> (n)) | ((x) << (64 - (n))))
 #define ROTR(x,n) ROTR64(x,n)
 
-
-#define cuda_swab64(x) \
-		((ulong)((((ulong)(x) & 0xff00000000000000UL) >> 56) | \
-			(((ulong)(x) & 0x00ff000000000000UL) >> 40) | \
-			(((ulong)(x) & 0x0000ff0000000000UL) >> 24) | \
-			(((ulong)(x) & 0x000000ff00000000UL) >>  8) | \
-			(((ulong)(x) & 0x00000000ff000000UL) <<  8) | \
-			(((ulong)(x) & 0x0000000000ff0000UL) << 24) | \
-			(((ulong)(x) & 0x000000000000ff00UL) << 40) | \
-			(((ulong)(x) & 0x00000000000000ffUL) << 56)))
-
-
 #define B2B_G(v,a,b,c,d,x,y,c1,c2) { \
-	v[a] = v[a] + v[b] + (x ^ c1); \
+	v[a] += v[b] + (x ^ c1); \
 	v[d] ^= v[a]; \
 	v[d] = ROTR64(v[d], 60); \
-	v[c] = v[c] + v[d]; \
+	v[c] += v[d]; \
 	v[b] = ROTR64(v[b] ^ v[c], 43); \
-	v[a] = v[a] + v[b] + (y ^ c2); \
+	v[a] +=  v[b] + (y ^ c2); \
 	v[d] = ROTR64(v[d] ^ v[a], 5); \
-	v[c] = v[c] + v[d]; \
+	v[c] +=  v[d]; \
 	v[b] = ROTR64(v[b] ^ v[c], 18); \
 	v[d] ^= (~v[a] & ~v[b] & ~v[c]) | (~v[a] & v[b] & v[c]) | (v[a] & ~v[b] & v[c])   | (v[a] & v[b] & ~v[c]); \
     v[d] ^= (~v[a] & ~v[b] & v[c]) | (~v[a] & v[b] & ~v[c]) | (v[a] & ~v[b] & ~v[c]) | (v[a] & v[b] & v[c]); \
@@ -74,11 +58,13 @@ __constant static const unsigned long vBlake_iv[8] = {
 };
 
 
-void vblake512_compress(unsigned long *h, const unsigned long *block)
+void vblake512_compress(unsigned long *h, const unsigned long *mc)
 {
 	unsigned long v[16];
-	unsigned long m[16];
-
+	unsigned long m[16] ={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    //#pragma unroll 8
+	for (int i = 0; i < 8; i++)
+	m[i] = mc[i];
 	//#pragma unroll 8
 	for (int i = 0; i < 8; i++) {
 		v[i] = h[i];
@@ -87,39 +73,51 @@ void vblake512_compress(unsigned long *h, const unsigned long *block)
 	v[12] ^= 64;
 	v[14] ^= (ulong)(0xfffffffffffffffful);// (long)(-1);
 
-	for (int i = 0; i < 8; i++) {
-		m[i] = block[i]; 
-	}
-	const uchar b[8] = { 4,5,6,7,5,6,7,4 };
-	const uchar c[8] = { 8,9,10,11,10,11,8,9 };
-	const uchar d[8] = { 12,13,14,15,15,12,13,14 };
-	const uchar e[8] = { 0,2,4,6,8,10,12,14 };
-	//#pragma unroll 16
-	for (int i = 0; i < 128; i++) {
-		B2B_G(v, i&3, b[i&7], c[i&7], d[i&7], m[sigma[i>>3][e[i&7]+1]], m[sigma[i>>3][e[i&7]]],
-			u512[sigma[i>>3][e[i&7]+1]], u512[sigma[i>>3][e[i&7]]]);
 
+	#pragma unroll 
+	
+	for (int i = 0; i < 16; i++) {
+		B2B_G(v, 0, 4, 8, 12, m[sigma[i][1]], m[sigma[i][0]],
+			u512[sigma[i][1]], u512[sigma[i][0]]);
+
+		B2B_G(v, 1, 5, 9, 13, m[sigma[i][3]], m[sigma[i][2]],
+			u512[sigma[i][3]], u512[sigma[i][2]]);
+
+		B2B_G(v, 2, 6, 10, 14, m[sigma[i][5]], m[sigma[i][4]],
+			u512[sigma[i][5]], u512[sigma[i][4]]);
+
+		B2B_G(v, 3, 7, 11, 15, m[sigma[i][7]], m[sigma[i][6]],
+			u512[sigma[i][7]], u512[sigma[i][6]]);
+
+		B2B_G(v, 0, 5, 10, 15, m[sigma[i][9]], m[sigma[i][8]],
+			u512[sigma[i][9]], u512[sigma[i][8]]);
+
+		B2B_G(v, 1, 6, 11, 12, m[sigma[i][11]], m[sigma[i][10]],
+			u512[sigma[i][11]], u512[sigma[i][10]]);
+
+		B2B_G(v, 2, 7, 8, 13, m[sigma[i][13]], m[sigma[i][12]],
+			u512[sigma[i][13]], u512[sigma[i][12]]);
+
+		B2B_G(v, 3, 4, 9, 14, m[sigma[i][15]], m[sigma[i][14]],
+			u512[sigma[i][15]], u512[sigma[i][14]]);
 	}
 
 	h[0] ^= v[0] ^ v[8];
-	//	h[1] ^= v[1] ^ v[9];
-	//	h[2] ^= v[2] ^ v[10];
+
 	h[3] ^= v[3] ^ v[11];
-	//	h[4] ^= v[4] ^ v[12];
-	//	h[5] ^= v[5] ^ v[13];
+
 	h[6] ^= v[6] ^ v[14];
-	//	h[7] ^= v[7] ^ v[15];
+
 
 	h[0] ^= h[3] ^ h[6];  //copied from  the java
-						  //h[1] ^= h[4] ^ h[7];
-						  //h[2] ^= h[5];
+
 }
 
-unsigned long vBlake2(const ulong h0, const ulong h1, const ulong h2, const ulong h3, const ulong h4, const ulong h5, const ulong h6, const ulong h7)
+unsigned long vBlake2(const ulong h0,const  ulong h1,const   ulong h2,const  ulong h3,const  ulong h4,const  ulong h5,const   ulong h6, const  ulong h7)
 {
 	unsigned long b[8];
 	unsigned long h[8];
-
+  // #pragma unroll 8
 	for (int i = 0; i < 8; i++) {
 		h[i] = vBlake_iv[i];
 	}
@@ -136,24 +134,20 @@ unsigned long vBlake2(const ulong h0, const ulong h1, const ulong h2, const ulon
 
 	vblake512_compress(h, b);
 
-	//for (int i = 0; i < 8; i++) {
-	//	b[0] = cuda_swab64(h[0]);
-	//}
 	return h[0];
 }
-
-__kernel __attribute__((reqd_work_group_size(256, 1, 1)))
+//__kernel __attribute__((reqd_work_group_size(128, 1, 1)))
 __kernel void kernel_vblake(__global uint *nonceStart, __global uint *nonceOut, __global unsigned long *hashStartOut, __global unsigned long  *headerIn)
 {
 	// Generate a unique starting nonce for each thread that doesn't overlap with the work of any other thread
-	uint workStart = (uint)(get_global_id(0)) + nonceStart[0];
+	uint nonce = ((uint)get_global_id(0)&0xffffffffu) + nonceStart[0];
 
 	unsigned long nonceHeaderSection = headerIn[7];
 
 	// Run the hash WORK_PER_THREAD times
 	// for (unsigned int nonce = workStart; nonce < workStart + WORK_PER_THREAD; nonce++) {
 		// Zero out nonce position and write new nonce to last 32 bits of prototype header
-	   uint  nonce = workStart;
+	  // uint  nonce = workStart;
 		nonceHeaderSection &= 0x00000000FFFFFFFFu;
 		nonceHeaderSection |= (((unsigned long)nonce) << 32);
 
@@ -168,7 +162,7 @@ __kernel void kernel_vblake(__global uint *nonceStart, __global uint *nonceOut, 
 			}
 
 			// exit loop early
-			nonce = workStart + WORK_PER_THREAD;
+			//nonce = workStart + WORK_PER_THREAD;
 		}
 	// }
 }
