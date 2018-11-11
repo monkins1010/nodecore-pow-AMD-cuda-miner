@@ -5,20 +5,29 @@
 #include <CL/cl.h>
 #include <chrono>
 #include <ctime>
-#include <stdio.h>
-
+//#include <fcntl.h>
+//#include <unistd.h>
+//#include <getopt.h>
+//#include <errno.h>
+//#include <time.h>
+//#include <stdio.h>
+//#include <unistd.h>
 #include <stdlib.h>
 #include "UCPClient.h"
 #include <fcntl.h>
+//#include <stddef.h>
 
 #ifdef _WIN32
 #include <Windows.h>
 #include <VersionHelpers.h>
 #include <io.h>
 #include <BaseTsd.h>
-#elif __linux__
+#endif
+
+#ifdef __linux__
 #include <sys/socket.h> 
 #include <netdb.h>
+#include "_kernel.h"
 #endif
 
 #include <ctime>
@@ -31,7 +40,7 @@
 #endif
 
 
-#define DEFAULT_BLOCKSIZE 0x2000
+#define DEFAULT_BLOCKSIZE 0x1000
 #define DEFAULT_THREADS_PER_BLOCK 128
 
 
@@ -40,14 +49,14 @@ int threadsPerBlock = DEFAULT_THREADS_PER_BLOCK;
 
 bool verboseOutput = false;
 int amd_flag = 0;
-typedef SSIZE_T ssize_t;
+//typedef SSIZE_T ssize_t;
 #define open _open
 const char *source = NULL;
 size_t source_len;
 char *binary = NULL;
 size_t binary_len;
 uint32_t lastNonceStart = 0;
-char outputBuffer[100 *1024];
+char outputBuffer[100 * 1024];
 string selectedDeviceName;
 /*
 * Kernel function to search a range of nonces for a solution falling under the macro-configured difficulty (CPU=2^24, GPU=2^32).
@@ -236,7 +245,7 @@ cl_mem check_clCreateBuffer(cl_context ctx, cl_mem_flags flags, size_t size,
 	//fatal("clCreateBuffer (%d)\n", status);
 	return ret;
 }
-
+#ifdef _WIN32
 void dump(const char *fname, void *data, size_t len)
 {
 	int			fd;
@@ -275,7 +284,7 @@ void dump(const char *fname, void *data, size_t len)
 	}
 
 }
-
+#endif
 void get_program_bins(cl_program program)
 {
 	cl_int		status;
@@ -292,9 +301,9 @@ void get_program_bins(cl_program program)
 		sizeof(p),	// size_t param_value_size
 		&p,		// void *param_value
 		&ret);	// size_t *param_value_size_ret
-
+#ifdef _WIN32
 	dump("dump.co", p, sizes);
-
+#endif
 }
 void print_platform_info(cl_platform_id plat)
 {
@@ -311,6 +320,7 @@ void print_platform_info(cl_platform_id plat)
 		promptExit(-1);
 
 	}
+	selectedDeviceName = name;
 	sprintf(outputBuffer, "Devices on platform \"%s\":", name);
 	cout << outputBuffer << endl;
 	Log::info(outputBuffer);
@@ -330,7 +340,7 @@ void print_device_info(unsigned i, cl_device_id d)
 		promptExit(-1);
 		//fatal("malloc: %s\n", strerror(errno));
 	}
-	selectedDeviceName = name;
+  selectedDeviceName = name;
 	sprintf(outputBuffer, "  ID %d: %s", i, name);
 	cout << outputBuffer << endl;
 	Log::info(outputBuffer);
@@ -437,20 +447,20 @@ unsigned scan_platform(cl_platform_id plat, cl_uint *nr_devs_total,
 }
 
 void get_program_build_log(cl_program program, cl_device_id device)
- {
+{
 	cl_int		status2;
-	char	        val[100 *1024];
+	char	        val[100 * 1024];
 	size_t		ret = 0;
 
-	status2 = clGetProgramBuildInfo(program, device,CL_PROGRAM_BUILD_LOG,sizeof(val),&val,&ret);		
-   // if (status2 != CL_SUCCESS) {
-		sprintf(outputBuffer, "%s", val);
-		
-		cout << outputBuffer << endl;
-		Log::info(outputBuffer);
-		//promptExit(-1);
+	status2 = clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(val), &val, &ret);
+	// if (status2 != CL_SUCCESS) {
+	sprintf(outputBuffer, "%s", val);
+
+	cout << outputBuffer << endl;
+	Log::info(outputBuffer);
+	//promptExit(-1);
 	//}
-	
+
 }
 
 int is_platform_amd(cl_platform_id plat)
@@ -488,7 +498,7 @@ void scan_platforms(cl_platform_id *plat_id, cl_device_id *dev_id)
 		sprintf(outputBuffer, "Found %d OpenCL platform(s)", nr_platforms);
 		cout << outputBuffer << endl;
 		Log::info(outputBuffer);
-		
+
 	}
 
 	platforms = (cl_platform_id *)malloc(nr_platforms * sizeof(*platforms));
@@ -522,6 +532,9 @@ void scan_platforms(cl_platform_id *plat_id, cl_device_id *dev_id)
 	amd_flag = is_platform_amd(*plat_id);
 	free(platforms);
 }
+
+#ifdef _WIN32
+
 void load_file(const char *fname, char **dat, size_t *dat_len, int ignore_error)
 {
 	struct stat	st;
@@ -573,7 +586,7 @@ void load_file(const char *fname, char **dat, size_t *dat_len, int ignore_error)
 	}
 	(*dat)[*dat_len] = 0;
 }
-
+#endif
 int main(int argc, char *argv[])
 {
 	// Check for help argument (only -h)
@@ -796,7 +809,7 @@ int main(int argc, char *argv[])
 		NULL, NULL);
 	if (status != CL_SUCCESS) {
 		sprintf(outputBuffer, "OpenCL build failed (%d). Build log follows:", status);
-		
+
 
 
 		get_program_build_log(program, dev_id);
@@ -820,7 +833,6 @@ int main(int argc, char *argv[])
 	/////////////////////////////////
 
 
-	
 	// Print out information about all available CUDA devices on system
 
 
@@ -846,7 +858,7 @@ int main(int argc, char *argv[])
 	pnoncestart = (uint32_t*)malloc(sizeof(uint32_t) * 2);
 	pnonceout = (uint32_t *)malloc(sizeof(uint32_t) * 2);
 	phashstartout = (uint64_t *)malloc(sizeof(uint64_t) * 2);
-	pheaderin = (uint64_t *)malloc(sizeof(uint64_t) * 9);
+	pheaderin = (uint64_t *)malloc(sizeof(uint64_t) * 8);
 
 	pnoncestart_d = check_clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(uint32_t) * 1, NULL);
 	pnonceout_d = check_clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(uint32_t) * 1, NULL);
@@ -877,10 +889,9 @@ int main(int argc, char *argv[])
 		clEnqueueWriteBuffer(queue, pheaderin_d, CL_TRUE, 0, sizeof(uint64_t) * 8, pheaderin, 0, NULL, NULL);
 
 
-		uint32_t nonceStart = (uint64_t)lastNonceStart + (blocksize * 128 * threadsPerBlock);
+		uint32_t nonceStart = (uint64_t)lastNonceStart + (blocksize * threadsPerBlock * 128);
 		lastNonceStart = nonceStart;
 		pnoncestart[0] = nonceStart;
-
 		clEnqueueWriteBuffer(queue, pnoncestart_d, CL_TRUE, 0, sizeof(uint32_t) * 1, pnoncestart, 0, NULL, NULL);
 		clEnqueueWriteBuffer(queue, phashstartout_d, CL_TRUE, 0, sizeof(uint64_t) * 1, phashstartout, 0, NULL, NULL);
 
@@ -889,7 +900,7 @@ int main(int argc, char *argv[])
 		check_clSetKernelArg(k_vblake, 2, &phashstartout_d);
 		check_clSetKernelArg(k_vblake, 3, &pheaderin_d);
 
-		global_ws = (unsigned int)(blocksize * threadsPerBlock*128);
+		global_ws = (unsigned int)(blocksize * threadsPerBlock * 128);
 
 		//start Opencl kernel
 		check_clEnqueueNDRangeKernel(queue, k_vblake, 1, NULL,
@@ -926,7 +937,7 @@ int main(int argc, char *argv[])
 		double hashSpeed = (double)hashes;
 		hashSpeed /= (totalTime * 1024 * 1024);
 
-		if (count % 20 == 0) {
+		if (count % 10 == 0) {
 			int validShares = ucpClient.getValidShares();
 			int invalidShares = ucpClient.getInvalidShares();
 			int totalAccountedForShares = invalidShares + validShares;
@@ -936,9 +947,9 @@ int main(int argc, char *argv[])
 			double percentage = ((double)validShares) / totalAccountedForShares;
 			percentage *= 100;
 			// printf("[GPU #%d (%s)] : %f MH/second    valid shares: %d/%d/%d (%.3f%%)\n", deviceToUse, selectedDeviceName.c_str(), hashSpeed, validShares, totalAccountedForShares, totalSubmittedShares, percentage);
-			//printf("hashend %#018llx \n ", header[0]);
+
 			printf("[GPU #%d (%s)] : %0.2f MH/s shares: %d/%d/%d (%.3f%%)\n", deviceToUse, selectedDeviceName.c_str(), hashSpeed, validShares, totalAccountedForShares, totalSubmittedShares, percentage);
-			
+
 		}
 
 		if (nonceResult[0] != 0x01000000 && nonceResult[0] != 0) {
@@ -965,7 +976,7 @@ int main(int argc, char *argv[])
 #if CPU_SHARES 
 			sprintf(line, "\t Share Found @ 2^24! {%#018llx} [nonce: %#08lx]", hashFlipped, nonce);
 #else
-			sprintf(line, "\t Share Found @ 2^32! {%#08lx} [nonce: %#08lx]", hashFlipped, nonce);
+			sprintf(line, "\t Share Found @ 2^32! {%#018llx} [nonce: %#08lx]", hashFlipped, nonce);
 #endif
 
 			cout << line << endl;
