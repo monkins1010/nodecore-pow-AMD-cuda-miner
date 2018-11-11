@@ -1,12 +1,12 @@
 Latest downloads
 
 Linux
-https://github.com/VeriBlock/nodecore-pow-cuda-miner/releases/download/v0.3.5/nodecore-pow-cuda-miner-linux-0.3.5.zip
+clone the AMDVERSION branch
 
 Windows
-https://github.com/VeriBlock/nodecore-pow-cuda-miner/releases/download/v0.3.5/nodecore-pow-cuda-miner-windows-0.3.5.zip
+See releases for v1.2
 
-# NodeCore PoW CUDA Miner
+# NodeCore PoW AMD & CUDA Miner
 ## Contents
 [Introduction](#introduction)
 
