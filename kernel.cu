@@ -34,29 +34,10 @@
 #endif
 #define ROTR64(x, n)  (((x) >> (n)) | ((x) << (64 - (n))))
 #define ROTR(x,n) ROTR64(x,n)
-#define ROTL64(x, n)  (((x) << (n)) | ((x) >> (64 - (n))))
 
-#define cuda_swab64(x) \
-		((uint64_t)((((uint64_t)(x) & 0xff00000000000000ULL) >> 56) | \
-			(((uint64_t)(x) & 0x00ff000000000000ULL) >> 40) | \
-			(((uint64_t)(x) & 0x0000ff0000000000ULL) >> 24) | \
-			(((uint64_t)(x) & 0x000000ff00000000ULL) >>  8) | \
-			(((uint64_t)(x) & 0x00000000ff000000ULL) <<  8) | \
-			(((uint64_t)(x) & 0x0000000000ff0000ULL) << 24) | \
-			(((uint64_t)(x) & 0x000000000000ff00ULL) << 40) | \
-			(((uint64_t)(x) & 0x00000000000000ffULL) << 56)))
-__device__ __forceinline__
-uint64_t SWAPDWORDS(uint64_t value)
-{
-#if __CUDA_ARCH__ >= 320
-	uint2 temp;
-	asm("mov.b64 {%0, %1}, %2; ": "=r"(temp.x), "=r"(temp.y) : "l"(value));
-	asm("mov.b64 %0, {%1, %2}; ": "=l"(value) : "r"(temp.y), "r"(temp.x));
-	return value;
-#else
-	return ROTL64(value, 32);
-#endif
-}
+
+__constant__ static uint64_t __align__(8) c_512[16];
+__constant__ static uint64_t __align__(8) c_vblake[8];
 
 #define B2B_G(v,a,b,c,d,x,y,c1,c2) { \
 	v[a] = v[a] + v[b] + (x ^ c1); \
@@ -100,8 +81,7 @@ static const uint8_t c_sigma_big[16][16] = {
 	{ 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 }
 };
 
-__device__ __constant__
-static const uint64_t c_u512[16] =
+static const uint64_t cpu_u512[16] =
 {
 	0xA51B6A89D489E800ULL, 0xD35B2E0E0B723800ULL,
 	0xA47B39A2AE9F9000ULL, 0x0C0EFA33E77E6488ULL,
@@ -113,38 +93,48 @@ static const uint64_t c_u512[16] =
 	0xD859E6F081AAE000ULL, 0x63D980597B560E6BULL
 };
 
-__device__ __constant__
-static const uint64_t vBlake_iv[8] = {
+static const uint64_t cpu_vBlake_iv[8] = {
 	0x4BBF42C1F006AD9Dull, 0x5D11A8C3B5AEB12Eull,
 	0xA64AB78DC2774652ull, 0xC67595724658F253ull,
 	0xB8864E79CB891E56ull, 0x12ED593E29FB41A1ull,
 	0xB1DA3AB63C60BAA8ull, 0x6D20E50C1F954DEDull
 };
 
+
 __device__ 
-void vblake512_compress(uint64_t *h, const uint64_t *block, const uint8_t((*sigma)[16]), const uint64_t *u512)
+uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const uint64_t h3, const uint64_t h4, const uint64_t h5, const uint64_t h6, const uint64_t h7, const uint64_t* u512, const uint64_t* s_vBlake, const uint8_t((*sigma)[16]))
 {
-	uint64_t v[16];
-	uint64_t m[16];
+	uint64_t h[8];
+    uint64_t v[16];
+	uint64_t m[16] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
 
-	//#pragma unroll 8
-	for (int i = 0; i < 8; i++) {
-		v[i] = h[i];
-		v[i + 8] = vBlake_iv[i];
-	}
+	h[0]  = v[8]  =  s_vBlake[0];
 	
+	h[0] ^= (uint64_t)(0x01010000 ^ 0x18);
+	v[0] = h[0];
+	v[9]  = v[1] = s_vBlake[1];
+	v[10] = v[2] = s_vBlake[2];
+	h[3]  = v[11] = v[3] = s_vBlake[3];
+	v[12] = v[4] = s_vBlake[4];
+	v[13] = v[5] = s_vBlake[5];
+	h[6]  = v[14] = v[6] = s_vBlake[6];
+	v[15] = v[7] = s_vBlake[7];
+	
+	
+
+	m[0] = h0;
+	m[1] = h1;
+	m[2] = h2;
+	m[3] = h3;
+	m[4] = h4;
+	m[5] = h5;
+	m[6] = h6;
+	m[7] = h7;		
+	//vblake512_compress(h, b, c_sigma_big, s_u512);
 	v[12] ^= 64;
-	//v[13] ^= 0;
 	v[14] ^= (uint64_t)(0xffffffffffffffffull);// (long)(-1);
-	//v[15] ^= 0;
 
-//#pragma unroll 8
-	for (int i = 0; i < 8; i++) {
-		m[i] = block[i]; // cuda_swab64(block[i]); orORINGNAL BLAKE
-	}
-
-
-	//#pragma unroll 16
+	#pragma unroll 16
 	for (int i = 0; i < 16; i++) {
 		B2B_G(v, 0, 4, 8, 12, m[sigma[i][1]], m[sigma[i][0]],
 			u512[sigma[i][1]], u512[sigma[i][0]]);
@@ -172,43 +162,12 @@ void vblake512_compress(uint64_t *h, const uint64_t *block, const uint8_t((*sigm
 	}
 
 	h[0] ^= v[0] ^ v[8];
-//	h[1] ^= v[1] ^ v[9];
-//	h[2] ^= v[2] ^ v[10];
+
 	h[3] ^= v[3] ^ v[11];
-//	h[4] ^= v[4] ^ v[12];
-//	h[5] ^= v[5] ^ v[13];
+
 	h[6] ^= v[6] ^ v[14];
-//	h[7] ^= v[7] ^ v[15];
 
 	h[0] ^= h[3] ^ h[6];  //copied from  the java
-	//h[1] ^= h[4] ^ h[7];
-	//h[2] ^= h[5];
-}
-__device__ __forceinline__
-uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const uint64_t h3, const uint64_t h4, const uint64_t h5, const uint64_t h6, const uint64_t h7)
-{
-	uint64_t b[8];
-	uint64_t h[8];
-
-	for (int i = 0; i < 8; i++) {
-		h[i] = vBlake_iv[i];
-	}
-	h[0] ^= (uint64_t)(0x01010000 ^ 0x18);
-
-	b[0] = h0;
-	b[1] = h1;
-	b[2] = h2;
-	b[3] = h3;
-	b[4] = h4;
-	b[5] = h5;
-	b[6] = h6;
-	b[7] = h7;
-		
-	vblake512_compress(h, b, c_sigma_big, c_u512);
-	
-	//for (int i = 0; i < 8; i++) {
-	//	b[0] = cuda_swab64(h[0]);
-	//}
 	return h[0];
 }
 
@@ -216,11 +175,11 @@ uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const 
 #if CPU_SHARES
 #define WORK_PER_THREAD 256
 #else
-#define WORK_PER_THREAD 256
+#define WORK_PER_THREAD 1
 #endif
 
 #if HIGH_RESOURCE
-#define DEFAULT_BLOCKSIZE 512
+#define DEFAULT_BLOCKSIZE 0x80000
 #define DEFAULT_THREADS_PER_BLOCK 1024
 #else
 #define DEFAULT_BLOCKSIZE 512
@@ -235,30 +194,25 @@ bool verboseOutput = false;
 /*
 * Kernel function to search a range of nonces for a solution falling under the macro-configured difficulty (CPU=2^24, GPU=2^32).
 */
-__launch_bounds__(256, 2)
+//__launch_bounds__(256, 2)
 __global__ void vblakeHasher(uint32_t *nonceStart, uint32_t *nonceOut, uint64_t *hashStartOut, uint64_t const *headerIn)
 {
 	// Generate a unique starting nonce for each thread that doesn't overlap with the work of any other thread
-	const uint32_t workStart = ((blockDim.x * blockIdx.x + threadIdx.x)  * WORK_PER_THREAD) + nonceStart[0];
+	const uint32_t workStart = ((blockDim.x * blockIdx.x + threadIdx.x)) + nonceStart[0];
+	__shared__ uint64_t s_u512[16],s_vblake[8];
 
+	if (threadIdx.x < 16U) s_u512[threadIdx.x] = c_512[threadIdx.x];
+	if (threadIdx.x < 8U) s_vblake[threadIdx.x] = c_vblake[threadIdx.x];
 	uint64_t nonceHeaderSection = headerIn[7];
-
-	// Run the hash WORK_PER_THREAD times
-	for (unsigned int nonce = workStart; nonce < workStart + WORK_PER_THREAD; nonce++) {
+	unsigned int nonce = workStart;
+	//for (unsigned int nonce = workStart; nonce < workStart + WORK_PER_THREAD; nonce++) {
 		// Zero out nonce position and write new nonce to last 32 bits of prototype header
 		nonceHeaderSection &= 0x00000000FFFFFFFFu;
 		nonceHeaderSection |= (((uint64_t)nonce) << 32);
 
-		uint64_t hashStart = vBlake2(headerIn[0], headerIn[1], headerIn[2], headerIn[3], headerIn[4], headerIn[5], headerIn[6], nonceHeaderSection);
+		uint64_t hashStart = vBlake2(headerIn[0], headerIn[1], headerIn[2], headerIn[3], headerIn[4], headerIn[5], headerIn[6], nonceHeaderSection, s_u512, s_vblake, c_sigma_big);
 
-		if ((hashStart &
-
-#if CPU_SHARES
-			0x0000000000FFFFFFu // 2^24 difficulty
-#else
-			0x00000000FFFFFFFFu // 2^32 difficulty
-#endif
-			) == 0) {
+		if ((hashStart & 0x00000000FFFFFFFFu) == 0) {
 			// Check that found solution is better than existing solution if one has already been found on this run of the kernel (always send back highest-quality work)
 			if (hashStartOut[0] > hashStart || hashStartOut[0] == 0) {
 				nonceOut[0] = nonce;
@@ -266,9 +220,9 @@ __global__ void vblakeHasher(uint32_t *nonceStart, uint32_t *nonceOut, uint64_t 
 			}
 
 			// exit loop early
-			nonce = workStart + WORK_PER_THREAD;
+			//nonce = workStart + WORK_PER_THREAD;
 		}
-	}
+	//}
 }
 
 void promptExit(int exitCode)
@@ -986,6 +940,9 @@ cudaError_t grindNonces(uint32_t *nonceResult, uint64_t *hashStart, const uint64
 		Log::error(outputBuffer);
 		goto Error;
 	}
+
+	cudaMemcpyToSymbol(c_512, cpu_u512, sizeof(cpu_u512), 0, cudaMemcpyHostToDevice);
+	cudaMemcpyToSymbol(c_vblake, cpu_vBlake_iv, sizeof(cpu_vBlake_iv), 0, cudaMemcpyHostToDevice);
 
 	// Launch a kernel on the GPU with one thread for each element.
 	vblakeHasher << < blocksize, threadsPerBlock >> >(dev_nonceStart, dev_nonceResult, dev_hashStart, dev_header);
