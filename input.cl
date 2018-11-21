@@ -1,6 +1,7 @@
 
-#define ROTR64(x, n)  (((x) >> (n)) | ((x) << (64 - (n))))
+//#define ROTR64(x, n)  (((x) >> (n)) | ((x) << (64 - (n))))
 #define ROTR(x,n) ROTR64(x,n)
+#define ROTR64(x, n) ((n) < 32 ? (amd_bitalign((uint)((x) >> 32), (uint)(x), (uint)(n)) | ((ulong)amd_bitalign((uint)(x), (uint)((x) >> 32), (uint)(n)) << 32)) : (amd_bitalign((uint)(x), (uint)((x) >> 32), (uint)(n) - 32) | ((ulong)amd_bitalign((uint)((x) >> 32), (uint)(x), (uint)(n) - 32) << 32)))
 
 #define B2B_G(v,a,b,c,d,x,y,c1,c2) { \
 	v[a] += v[b] + (x ^ c1); \
