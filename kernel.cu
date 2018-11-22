@@ -32,23 +32,49 @@
 #ifdef __INTELLISENSE__
 #define __launch_bounds__(blocksize)
 #endif
-#define ROTR64(x, n)  (((x) >> (n)) | ((x) << (64 - (n))))
+//#define ROTR64(x, n)  (((x) >> (n)) | ((x) << (64 - (n))))
 #define ROTR(x,n) ROTR64(x,n)
 
 
 __constant__ static uint64_t __align__(8) c_512[16];
 __constant__ static uint64_t __align__(8) c_vblake[8];
+__device__ __forceinline__ uint64_t ROTR64_L(uint64_t value,
+	const int offset) {
+	uint2 result;
+			asm("shf.r.wrap.b32 %0, %1, %2, %3;" :
+		"=r"(result.x) : "r"(__double2loint(__longlong_as_double(value))),
+			"r"(__double2hiint(__longlong_as_double(value))), "r"(offset));
+		asm("shf.r.wrap.b32 %0, %1, %2, %3;" :
+		"=r"(result.y) : "r"(__double2hiint(__longlong_as_double(value))),
+			"r"(__double2loint(__longlong_as_double(value))), "r"(offset));
+	
+	return __double_as_longlong(__hiloint2double(result.y,
+		result.x));
+}
+__device__ __forceinline__ uint64_t ROTR64_H(uint64_t value,
+	const int offset) {
+	uint2 result;
 
+		asm("shf.r.wrap.b32 %0, %1, %2, %3;" :
+		"=r"(result.x) : "r"(__double2hiint(__longlong_as_double(value))),
+			"r"(__double2loint(__longlong_as_double(value))), "r"(offset));
+		asm("shf.r.wrap.b32 %0, %1, %2, %3;" :
+		"=r"(result.y) : "r"(__double2loint(__longlong_as_double(value))),
+			"r"(__double2hiint(__longlong_as_double(value))), "r"(offset));
+
+	return __double_as_longlong(__hiloint2double(result.y,
+		result.x));
+}
 #define B2B_G(v,a,b,c,d,x,y,c1,c2) { \
 	v[a] = v[a] + v[b] + (x ^ c1); \
 	v[d] ^= v[a]; \
-	v[d] = ROTR64(v[d], 60); \
+	v[d] = ROTR64_H(v[d], 60); \
 	v[c] = v[c] + v[d]; \
-	v[b] = ROTR64(v[b] ^ v[c], 43); \
+	v[b] = ROTR64_H(v[b] ^ v[c], 43); \
 	v[a] = v[a] + v[b] + (y ^ c2); \
-	v[d] = ROTR64(v[d] ^ v[a], 5); \
+	v[d] = ROTR64_L(v[d] ^ v[a], 5); \
 	v[c] = v[c] + v[d]; \
-	v[b] = ROTR64(v[b] ^ v[c], 18); \
+	v[b] = ROTR64_L(v[b] ^ v[c], 18); \
 	v[d] ^= (~v[a] & ~v[b] & ~v[c]) | (~v[a] & v[b] & v[c]) | (v[a] & ~v[b] & v[c])   | (v[a] & v[b] & ~v[c]); \
     v[d] ^= (~v[a] & ~v[b] & v[c]) | (~v[a] & v[b] & ~v[c]) | (v[a] & ~v[b] & ~v[c]) | (v[a] & v[b] & v[c]); \
 }
@@ -179,7 +205,7 @@ uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const 
 #endif
 
 #if HIGH_RESOURCE
-#define DEFAULT_BLOCKSIZE 0x80000
+#define DEFAULT_BLOCKSIZE 0xd0000
 #define DEFAULT_THREADS_PER_BLOCK 1024
 #else
 #define DEFAULT_BLOCKSIZE 512
