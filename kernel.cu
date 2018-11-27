@@ -233,15 +233,15 @@ uint64_t vBlake2(const uint64_t h0, const uint64_t h1, const uint64_t h2, const 
 #endif
 
 #if HIGH_RESOURCE
-#define DEFAULT_BLOCKSIZE 0x80000
+#define DEFAULT_BLOCKSIZE 0x70000
 #define DEFAULT_THREADS_PER_BLOCK 256
 #else
 #define DEFAULT_BLOCKSIZE 512
 #define DEFAULT_THREADS_PER_BLOCK 512
 #endif
 
-int blocksize = DEFAULT_BLOCKSIZE;
-int threadsPerBlock = DEFAULT_THREADS_PER_BLOCK;
+unsigned int blocksize = DEFAULT_BLOCKSIZE;
+unsigned int threadsPerBlock = DEFAULT_THREADS_PER_BLOCK;
 int opt_n_threads = 0;
 short device_map[MAX_GPUS] = { 0 };
 int gpu_threads = 1;
@@ -250,6 +250,7 @@ char * device_name[MAX_GPUS];
 long  device_sm[MAX_GPUS] = { 0 };
 short device_mpcount[MAX_GPUS] = { 0 };
 int init[MAX_GPUS] = { 0 };
+uint32_t lastnonce[4] = {6,7,8,9};
 
 bool verboseOutput = false;
 struct mining_attr {
@@ -260,6 +261,8 @@ struct mining_attr {
 	string password;
 
 };
+
+UCPClient* jim;
 
 /*
 * Kernel function to search a range of nonces for a solution falling under the macro-configured difficulty (CPU=2^24, GPU=2^32).
@@ -340,6 +343,7 @@ void embedTimestampInHeader(uint8_t *header, uint32_t timestamp)
 void getWork(UCPClient& ucpClient, uint32_t timestamp, uint64_t *header)
 {
 	//uint64_t *header = new uint64_t[8];
+	//printf("time stamp %08x \n", timestamp);
 	ucpClient.copyHeaderToHash((byte *)header);
 	embedTimestampInHeader((uint8_t*)header, timestamp);
 	//return header;
@@ -553,14 +557,17 @@ void* miner_thread(void* arg){
 	struct mining_attr *arg_Struct =
 		(struct mining_attr*) arg;
 
+	short devid = arg_Struct->dev_id;
+
+	uint32_t end_nonce = 0x20000000u  * (devid + 1);
 	pthread_mutex_lock(&stratum_sock_lock);
-	UCPClient ucpClient(arg_Struct->host, arg_Struct->port, arg_Struct->username, arg_Struct->password);
+	//jim(arg_Struct->host, arg_Struct->port, arg_Struct->username, arg_Struct->password);
 
 	byte target[24];
-	ucpClient.copyMiningTarget(target);
+	jim->copyMiningTarget(target);
 	uint64_t header[8];
 	
-	getWork(ucpClient, (uint32_t)std::time(0),header);
+	getWork(*jim, (uint32_t)std::time(0),header);
 	pthread_mutex_unlock(&stratum_sock_lock);
 
 	pthread_mutex_lock(&stratum_log_lock);
@@ -570,13 +577,15 @@ void* miner_thread(void* arg){
 	
 	uint32_t nonceResult[1] = { 0 };
 	uint64_t hashStart[1] = { 0 };
-	uint32_t startNonce = 0;
+	uint32_t startNonce = 0x20000000u * devid;
 	unsigned long long hashes = 0;
 	uint32_t count = 0;
 	int numLines = 0;
 
 	// Mining loop
 	while (true) {
+		
+
 		vprintf("top of mining loop\n");
 		count++;
 		long timestamp = (long)std::time(0);
@@ -584,14 +593,14 @@ void* miner_thread(void* arg){
 		vprintf("Getting work...\n");
 
 		pthread_mutex_lock(&stratum_sock_lock);
-		getWork(ucpClient, timestamp, header);
+		getWork(*jim, timestamp, header);
 		vprintf("Getting job id...\n");
-		int jobId = ucpClient.getJobId();
+		int jobId = jim->getJobId();
 		pthread_mutex_unlock(&stratum_sock_lock);
 
 		count++;
 		vprintf("Running kernel...\n");
-		grindNonces(startNonce, nonceResult, hashStart, header, arg_Struct->dev_id);
+		grindNonces(startNonce, nonceResult, hashStart, header, devid);
 		
 		vprintf("Kernel finished...\n");
 		
@@ -600,24 +609,31 @@ void* miner_thread(void* arg){
 		unsigned long long totalTime = std::time(0) - startTime;
 		pthread_mutex_unlock(&stratum_log_lock);
 		//todo mutex unlock
-		hashes += (blocksize * threadsPerBlock * WORK_PER_THREAD);
-		if ((uint64_t)startNonce +  (uint64_t)(blocksize * threadsPerBlock * WORK_PER_THREAD) < (uint64_t)0xffffffff) {
-			startNonce += (blocksize * threadsPerBlock * WORK_PER_THREAD);
+		hashes += ((uint32_t)blocksize * (uint32_t)threadsPerBlock * WORK_PER_THREAD);
+		if ((uint64_t)startNonce +  (uint64_t)(blocksize * threadsPerBlock * WORK_PER_THREAD) < (uint64_t)end_nonce) {
+			startNonce += ((uint32_t)blocksize * (uint32_t)threadsPerBlock * WORK_PER_THREAD);
 		}
 		else
-			startNonce = 0;
+			startNonce = 0x20000000u * (uint32_t)devid;
 
 		double hashSpeed = (double)hashes;
 		hashSpeed /= (totalTime * 1024 * 1024);
 
-		if (count % 10 == 0) {
-			//mutex lock
-			pthread_mutex_lock(&stratum_sock_lock);
+		if (count % 20 == 0) {
 
-			int validShares = ucpClient.getValidShares();
-			int invalidShares = ucpClient.getInvalidShares();
+			pthread_mutex_lock(&stratum_sock_lock);
+			//printf("clock = %08x devid = %d  optthreads= %d startn = %08x  endnonce = %08x bxtpb= %08x ", timestamp, devid, opt_n_threads, startNonce, end_nonce, (uint32_t)blocksize * (uint32_t)threadsPerBlock);
+			
+		//	for (int i = 0; i < 64; i++)
+			//	printf("%02x", ((uint8_t*)&header)[i]);
+			//printf("\n");
+			//mutex lock
+			
+
+			int validShares = jim->getValidShares();
+			int invalidShares = jim->getInvalidShares();
 			int totalAccountedForShares = invalidShares + validShares;
-			int totalSubmittedShares = ucpClient.getSentShares();
+			int totalSubmittedShares = jim->getSentShares();
 			int unaccountedForShares = totalSubmittedShares - totalAccountedForShares;
 			pthread_mutex_unlock(&stratum_sock_lock);
 			//mutex unlock
@@ -628,12 +644,21 @@ void* miner_thread(void* arg){
 			printf("[GPU: %d %s] : %0.2f MH/s shares: %d/%d/%d (%.3f%%)\n", arg_Struct->dev_id, device_name[arg_Struct->dev_id], hashSpeed, validShares, totalAccountedForShares, totalSubmittedShares, percentage);
 		}
 
-		if (nonceResult[0] != 0x01000000 && nonceResult[0] != 0) {
+		if (nonceResult[0] != 0x01000000 && nonceResult[0] != 0
+			&& lastnonce[0] != nonceResult[0] && lastnonce[1] != nonceResult[0] && lastnonce[2] != nonceResult[0]
+			&& lastnonce[3] != nonceResult[0]) {
+
+			pthread_mutex_lock(&stratum_sock_lock);
+			lastnonce[3] = lastnonce[2];
+			lastnonce[2] = lastnonce[1];
+			lastnonce[1] = lastnonce[0];
+			lastnonce[0] = nonceResult[0];
+
 			uint32_t nonce = *nonceResult;
 			nonce = (((nonce & 0xFF000000) >> 24) | ((nonce & 0x00FF0000) >> 8) | ((nonce & 0x0000FF00) << 8) | ((nonce & 0x000000FF) << 24));
 			
-			pthread_mutex_lock(&stratum_sock_lock);
-			ucpClient.submitWork(jobId, timestamp, nonce);
+			
+			jim->submitWork(jobId, timestamp, nonce);
 			pthread_mutex_unlock(&stratum_sock_lock);
 			
 			nonceResult[0] = 0;
@@ -654,7 +679,7 @@ void* miner_thread(void* arg){
 #if CPU_SHARES 
 			sprintf(line, "\t Share Found @ 2^24! {%#018llx} [nonce: %#08lx]", hashFlipped, nonce);
 #else
-			sprintf(line, "\t Share Found @ 2^32! {%#018llx} [nonce: %#08lx]", hashFlipped, nonce);
+			sprintf(line, "\t [GPU: %d %s] Share Found @ 2^32! {%#018llx} [nonce: %#08lx]", arg_Struct->dev_id, device_name[arg_Struct->dev_id], hashFlipped, nonce);
 #endif
 
 			cout << line << endl;
@@ -924,6 +949,9 @@ int main(int argc, char *argv[])
 
 	pthread_t tids[MAX_GPUS];
 	struct mining_attr m_args[MAX_GPUS];
+	UCPClient ucpClient(host, port, username, password);
+
+	jim = &ucpClient;
 
 	for (int i = 0; i < opt_n_threads; i++) {
 		m_args[i].host = host;
