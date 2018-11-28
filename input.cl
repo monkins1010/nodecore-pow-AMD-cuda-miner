@@ -1,7 +1,8 @@
-
-//#define ROTR64(x, n)  (((x) >> (n)) | ((x) << (64 - (n))))
-#define ROTR(x,n) ROTR64(x,n)
+#ifdef cl_amd_media_ops
 #define ROTR64(x, n) ((n) < 32 ? (amd_bitalign((uint)((x) >> 32), (uint)(x), (uint)(n)) | ((ulong)amd_bitalign((uint)(x), (uint)((x) >> 32), (uint)(n)) << 32)) : (amd_bitalign((uint)(x), (uint)((x) >> 32), (uint)(n) - 32) | ((ulong)amd_bitalign((uint)((x) >> 32), (uint)(x), (uint)(n) - 32) << 32)))
+#else
+#define ROTR64(x, n)  (((x) >> (n)) | ((x) << (64 - (n))))
+#endif
 
 #define B2B_G(v,a,b,c,d,x,y,c1,c2) { \
 	v[a] += v[b] + (x ^ c1); \
@@ -59,7 +60,7 @@ __constant static const unsigned long vBlake_iv[8] = {
 };
 
 
-void vblake512_compress(unsigned long *h, const unsigned long *mc)
+void vblake512_compress(unsigned long *h, unsigned long *mc)
 {
 	unsigned long v[16];
 	unsigned long m[16] ={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
@@ -75,7 +76,7 @@ void vblake512_compress(unsigned long *h, const unsigned long *mc)
 	v[14] ^= (ulong)(0xfffffffffffffffful);// (long)(-1);
 
 
-	#pragma unroll 
+	#pragma unroll 16
 	
 	for (int i = 0; i < 16; i++) {
 		B2B_G(v, 0, 4, 8, 12, m[sigma[i][1]], m[sigma[i][0]],
@@ -114,23 +115,17 @@ void vblake512_compress(unsigned long *h, const unsigned long *mc)
 
 }
 
-unsigned long vBlake2(const ulong h0,const  ulong h1,const   ulong h2,const  ulong h3,const  ulong h4,const  ulong h5,const   ulong h6, const  ulong h7)
+unsigned long vBlake2(__global ulong *hi, ulong h7)
 {
 	unsigned long b[8];
 	unsigned long h[8];
   // #pragma unroll 8
 	for (int i = 0; i < 8; i++) {
 		h[i] = vBlake_iv[i];
+		b[i] = hi[i];
 	}
 	h[0] ^= (ulong)(0x01010000 ^ 0x18);
 
-	b[0] = h0;
-	b[1] = h1;
-	b[2] = h2;
-	b[3] = h3;
-	b[4] = h4;
-	b[5] = h5;
-	b[6] = h6;
 	b[7] = h7;
 
 	vblake512_compress(h, b);
@@ -145,25 +140,21 @@ __kernel void kernel_vblake(__global uint *nonceStart, __global uint *nonceOut, 
 
 	unsigned long nonceHeaderSection = headerIn[7];
 
-	// Run the hash WORK_PER_THREAD times
-	// for (unsigned int nonce = workStart; nonce < workStart + WORK_PER_THREAD; nonce++) {
-		// Zero out nonce position and write new nonce to last 32 bits of prototype header
-	  // uint  nonce = workStart;
+	
 		nonceHeaderSection &= 0x00000000FFFFFFFFu;
 		nonceHeaderSection |= (((unsigned long)nonce) << 32);
 
-		unsigned long hashStart = vBlake2(headerIn[0], headerIn[1], headerIn[2], headerIn[3], headerIn[4], headerIn[5], headerIn[6], nonceHeaderSection);
+		unsigned long hashStart = vBlake2(headerIn, nonceHeaderSection);
 
 		if ((hashStart & 0x00000000FFFFFFFFu) == 0) { // 2^32 difficulty
 						
-			// Check that found solution is better than existing solution if one has already been found on this run of the kernel (always send back highest-quality work)
+			
 			if (hashStartOut[0] > hashStart || hashStartOut[0] == 0) {
 				nonceOut[0] = nonce;
 				hashStartOut[0] = hashStart;
 			}
 
-			// exit loop early
-			//nonce = workStart + WORK_PER_THREAD;
+			
 		}
-	// }
+	
 }
