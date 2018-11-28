@@ -7,15 +7,15 @@ LIBOPENCL = "/opt/amdgpu-pro/lib/x86_64-linux-gnu"
 CC = g++
 CPPFLAGS = -I${OPENCL_HEADERS}
 CFLAGS = -O2 -Wall
-LDFLAGS =  -pthread -lpthread -rdynamic -L${LIBOPENCL}
+LDFLAGS =  -pthread -lpthread -rdynamic -L${LIBOPENCL} -fpermissive
 LDLIBS = -lOpenCL -lrt
 OBJ = kernel.cc
 INCLUDES = _kernel.h
 
-all : sa-solver
+all : veri_amd
 
-sa-solver : ${OBJ}
-	${CC} -o sa-solver ${OBJ} ${LDFLAGS} ${LDLIBS}
+veri_amd : ${OBJ}
+	${CC} -o veri_amd ${OBJ} ${LDFLAGS} ${LDLIBS}
 
 ${OBJ} : ${INCLUDES}
 
@@ -25,6 +25,6 @@ _kernel.h : input.cl
 	echo ')_mrb_";' >>$@
 
 clean :
-	rm -f sa-solver _kernel.h *.o _temp_*
+	rm -f veri_amd _kernel.h *.o _temp_*
 
 re : clean all
