@@ -15,7 +15,7 @@ INCLUDES = _kernel.h
 all : veri_amd
 
 veri_amd : ${OBJ}
-	${CC} -o veri_amd ${OBJ} ${LDFLAGS} ${LDLIBS}
+	${CC} -std=gnu++11 -o veri_amd ${OBJ} ${LDFLAGS} ${LDLIBS}
 
 ${OBJ} : ${INCLUDES}
 
