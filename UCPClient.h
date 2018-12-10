@@ -708,7 +708,7 @@ private:
 
 				if ((message != nullptr) && (message[0] == '\0'))
 				{					
-					Sleep(1000);
+					sleep(1000);
 				}
 				else
 				{
