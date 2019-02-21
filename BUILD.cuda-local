@@ -1,0 +1,11 @@
+cc_library(
+    name = "cuda",
+    hdrs = glob([
+        "include/**/*.h",
+        "include/**/*.hpp",
+    ]),
+    srcs = [
+        "lib64/libcudart.so",
+    ],
+    visibility = ["//visibility:public"],
+)
